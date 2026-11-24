@@ -1,11 +1,8 @@
 """Garment registration (thesis 3.4.4, FYP RQ3).
 
-* The QR on the tag carries a public GS1 Digital Link with a 128-bit serial: it only
-  ever shows the product (wishlist), never grants ownership.
-* A private 80-bit activation code (shown once, stored only as SHA-256) registers the
-  garment. "Usable once" is enforced by ONE atomic SQL statement:
-      UPDATE garment_code SET owner_id=:uid, used_at=now()
-      WHERE activation_hash=:h AND used_at IS NULL RETURNING serial, gtin
+* The QR serial and private activation key are alternative one-time registration credentials.
+* Either path atomically consumes the same garment_code row. Concurrent QR/key
+  redemption can only create one garment; activation keys are stored as hashes.
 * Every failure (unknown, already used, someone typed the public serial) returns the
   same generic error; attempts are rate-limited to 10 per user per hour.
 """
@@ -83,13 +80,16 @@ def _record_attempt(s: Session, user_id: uuid.UUID, now: datetime, ok: bool) -> 
     s.add(ActivationAttempt(user_id=user_id, at=now, ok=ok))
 
 
-def activate(s: Session, user_id: uuid.UUID, code: str, now: datetime | None = None) -> Garment:
+def activate(s: Session, user_id: uuid.UUID, code: str, now: datetime | None = None,
+             *, gtin: str | None = None, serial: str | None = None) -> Garment:
     now = now or datetime.now(timezone.utc)
     if attempts_in_window(s, user_id, now) >= RATE_LIMIT:
         raise RateLimited()
+    credential = ((GarmentCode.serial == serial) & (GarmentCode.gtin == gtin)
+                  if serial is not None else GarmentCode.activation_hash == hash_code(code))
     stmt = (
         update(GarmentCode)
-        .where(GarmentCode.activation_hash == hash_code(code), GarmentCode.used_at.is_(None))
+        .where(credential, GarmentCode.used_at.is_(None))
         .values(owner_id=user_id, used_at=now)
         .returning(GarmentCode.serial, GarmentCode.gtin)
         .execution_options(synchronize_session=False)
@@ -113,7 +113,7 @@ def activate(s: Session, user_id: uuid.UUID, code: str, now: datetime | None = N
 
 
 def product_page(s: Session, gtin: str, serial: str, base_url: str = "") -> dict | None:
-    """I5: what a phone sees after scanning the tag's QR. Read-only: never changes ownership."""
+    """Tag metadata. The scan page redeems the tag through POST /garments/scan."""
     code = s.get(GarmentCode, serial)
     if code is None or code.gtin != gtin:
         return None
@@ -122,6 +122,6 @@ def product_page(s: Session, gtin: str, serial: str, base_url: str = "") -> dict
         "gtin": p.gtin, "serial": serial, "name": p.name, "category": p.category, "slot": p.slot,
         "color_hex": p.color_hex, "style": p.style, "image_url": p.image_url,
         "digital_link": f"{base_url.rstrip('/')}/01/{gtin}/21/{serial}",
-        "wishlist_only": True,
-        "ownership": "Scanning shows the product only. Enter the private activation code from the tag to register it.",
+        "wishlist_only": False,
+        "ownership": "Scan this QR or enter its activation key to register the garment once.",
     }

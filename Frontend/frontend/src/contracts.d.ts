@@ -11,5 +11,5 @@ export interface Weather extends Partial<WeatherSlot> { source: WeatherSource; f
 export interface Recommendation { weather: Weather; context?: {rain: boolean; hot: boolean; occasion: Occasion}; outfits: {rank: number; score: number; compat: number; pref: number; recency: number; items: Garment[]}[]; message: string | null }
 export interface Health { status: string; db: 'neon' | 'postgresql' | 'sqlite'; weather_mode: 'mock' | 'live'; fault: string; weather_cache: unknown }
 export interface Avatar { outfit_id: string; body: {model: string; gender: string}; slots: Partial<Record<Slot, {garment_id: string; name: string; template: string | null; texture: string | null; tint: string}>>; covers: Partial<Record<Slot, Slot[]>> }
-export interface Scan { gtin: string; serial: string; name: string; category: string; slot: Slot; color_hex: string; style: Style; image_url: string | null; digital_link: string; wishlist_only: true; ownership: unknown }
+export interface Scan { gtin: string; serial: string; name: string; category: string; slot: Slot; color_hex: string; style: Style; image_url: string | null; digital_link: string; wishlist_only: false; ownership: unknown }
 export interface InterfaceRow { id: number; at: string; interface: string; route: string; status: number | string; latency_ms: number; weather_source: WeatherSource | null; note: string | null }

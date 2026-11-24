@@ -48,6 +48,7 @@ export const api = {
   add: values => post('/garments', values),
   deleteGarment: garmentId => remove('/garments/' + id(garmentId)),
   activate: code => post('/garments/activate', {code}),
+  registerScan: (gtin, serial) => post('/garments/scan', {gtin,serial}),
   scan: (gtin, serial) => request('/scan/01/' + id(gtin) + '/21/' + id(serial)),
   qr: serial => request('/codes/' + id(serial) + '/qr.svg', {protectedRead:true, blob:true}),
   log: filter => request('/metrics/interface-log?limit=50' + (filter ? '&interface=' + id(filter) : '')),

@@ -81,6 +81,11 @@ class ActivateIn(BaseModel):
     code: str = Field(min_length=1, max_length=64)
 
 
+class ScanIn(BaseModel):
+    gtin: str = Field(pattern=r"^\d{14}$")
+    serial: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
 class FaultIn(BaseModel):
     mode: FaultMode
 

@@ -62,7 +62,13 @@ This remains the synthetic single-user demo. Its write key also grants access
 to demo controls, including reset; it is not a multi-user wardrobe service.
 
 The built frontend smoke tests verify images, navigation, live recommendations,
-wardrobe loading, retailer products, and mobile layout against the Neon API:
+wardrobe loading, retailer products, and mobile layout against the Neon API.
+
+QR scanning and key entry are alternative registration methods. Both consume the
+same tag once. Opening a tag URL registers through a POST from its scan page;
+merely retrieving tag metadata does not redeem it. Fault simulations automatically
+expire after 10 minutes. The app starts at the current Jakarta time and selects
+real BMKG forecast slots within three hours of the requested time.
 
 ```powershell
 # After the Pages build (scripts/build_pages.py), from Frontend/frontend:

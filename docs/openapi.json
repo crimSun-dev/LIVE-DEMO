@@ -606,6 +606,48 @@
         }
       }
     },
+    "/api/v1/garments/scan": {
+      "post": {
+        "tags": [
+          "registration"
+        ],
+        "summary": "Activate Scan",
+        "description": "The unguessable 128-bit tag serial is a one-time registration credential.",
+        "operationId": "activate_scan_api_v1_garments_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GarmentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scan/01/{gtin}/21/{serial}": {
       "get": {
         "tags": [
@@ -1545,6 +1587,26 @@
           "occasion"
         ],
         "title": "RecommendIn"
+      },
+      "ScanIn": {
+        "properties": {
+          "gtin": {
+            "type": "string",
+            "pattern": "^\\d{14}$",
+            "title": "Gtin"
+          },
+          "serial": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$",
+            "title": "Serial"
+          }
+        },
+        "type": "object",
+        "required": [
+          "gtin",
+          "serial"
+        ],
+        "title": "ScanIn"
       },
       "ValidationError": {
         "properties": {

@@ -45,3 +45,12 @@ test('retailer product reads carry the demo key', async t => {
   await api.products();
   assert.equal(fetch.mock.calls[0].arguments[1].headers['X-API-Key'],'demo-key');
 });
+
+test('scanning registers the garment through a POST', async t => {
+  const fetch=t.mock.method(globalThis,'fetch',async()=>Response.json({id:'garment'}));
+  await api.registerScan('08999000000283','0123456789abcdef0123456789abcdef');
+  const [url,options]=fetch.mock.calls[0].arguments;
+  assert.equal(url,'/api/v1/garments/scan');
+  assert.equal(options.method,'POST');
+  assert.deepEqual(JSON.parse(options.body),{gtin:'08999000000283',serial:'0123456789abcdef0123456789abcdef'});
+});

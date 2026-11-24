@@ -30,6 +30,7 @@ async function transaction(fn){const db=await pool.connect();try{await db.query(
 let initialized;
 async function init(){if(!initialized)initialized=query('CREATE TABLE IF NOT EXISTS neon_demo_state (key text PRIMARY KEY, value jsonb NOT NULL)').catch(e=>{initialized=null;throw e;});await initialized;}
 async function state(key){return (await query('SELECT value FROM neon_demo_state WHERE key=$1',[key]))[0]?.value;}
+async function activeFault(){const value=await state('fault');return typeof value==='string'?value:value?.expires>Date.now()?value.mode:'none';}
 async function put(key,value){await query('INSERT INTO neon_demo_state(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value',[key,JSON.stringify(value)]);}
 async function log(iface,route,status,ms,source=null,note=null){try{await query('INSERT INTO interface_log(at,interface,route,status,latency_ms,weather_source,note) VALUES(now(),$1,$2,$3,$4,$5,$6)',[iface,route,status,ms,source,note]);}catch{ /* logging does not take down API */ }}
 app.use('*',async(c,next)=>{
@@ -39,11 +40,12 @@ app.use('*',async(c,next)=>{
   if(c.req.method==='OPTIONS')return c.body(null,204);
   await init(); const start=performance.now(); await next();
   if((c.req.path.startsWith('/api/')||c.req.path.startsWith('/01/'))&&c.req.path!=='/api/v1/metrics/interface-log'){
-    const iface=c.req.header('X-Interface')==='I6'?'I6':c.req.path.includes('/scan/')||c.req.path.startsWith('/01/')?'I5':'I1';
+    const iface=c.req.header('X-Interface')==='I6'?'I6':c.req.path.includes('/scan/')||c.req.path.endsWith('/garments/scan')||c.req.path.startsWith('/01/')?'I5':'I1';
     await log(iface,c.req.method+' '+c.req.path,c.res.status,performance.now()-start,c.get('weather_source')??null);
   }
 });
 app.use('/api/v1/*',async(c,next)=>{
+  if(c.req.path==='/api/v1/garments/scan' && c.req.method==='POST'){await next();return;}
   if(c.req.method!=='GET'||c.req.path.includes('/admin/')||c.req.path.endsWith('/qr.svg')){
     const expected=process.env.DEMO_API_KEY;
     const a=Buffer.from(c.req.header('X-API-Key')||''),b=Buffer.from(expected||'');
@@ -62,7 +64,7 @@ app.onError((e,c)=>{
 const wardrobe=async(db=pool)=>(await query('SELECT * FROM garment WHERE owner_id=$1',[user],db)).map(garment).sort((a,b)=>slots.indexOf(a.slot)-slots.indexOf(b.slot)||a.name.localeCompare(b.name));
 async function outfit(id,db=pool){const row=(await query('SELECT * FROM outfit WHERE id=$1 AND owner_id=$2',[id,user],db))[0];if(!row)fail(404,'outfit not found');const items=(await query('SELECT g.* FROM garment g JOIN outfit_item i ON i.garment_id=g.id WHERE i.outfit_id=$1',[id],db)).map(garment).sort((a,b)=>slots.indexOf(a.slot)-slots.indexOf(b.slot));return {id:row.id,label:row.label,planned_for:row.planned_for,occasion:row.occasion,items};}
 app.get('/',c=>c.json({service:'Digital Wardrobe Neon API',frontend:origin+'/LIVE-DEMO/'}));
-app.get('/api/v1/health',async c=>{await query('SELECT 1');return c.json({status:'ok',db:'neon',runtime:'neon-functions',weather_mode:process.env.WEATHER_MODE||'live',fault:(await state('fault'))||'none',weather_cache:{persistent:true}});});
+app.get('/api/v1/health',async c=>{await query('SELECT 1');return c.json({status:'ok',db:'neon',runtime:'neon-functions',weather_mode:process.env.WEATHER_MODE||'live',fault:await activeFault(),weather_cache:{persistent:true}});});
 app.get('/openapi.json',c=>c.json({...openapi,servers:[{url:new URL(c.req.url).origin}]}));
 app.get('/docs',c=>c.html('<!doctype html><title>Digital Wardrobe API</title><div id="swagger-ui"></div><link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"><script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script><script>SwaggerUIBundle({url:"/openapi.json",dom_id:"#swagger-ui"})</script>'));
 app.get('/api/v1/wardrobe',async c=>c.json(await wardrobe()));
@@ -86,22 +88,24 @@ const hash=code=>createHash('sha256').update(code.toUpperCase().replace(/[^A-Z0-
 const productAttrs=p=>Object.fromEntries(Object.keys(defaults).map(k=>[k,p[k]]));
 app.get('/api/v1/admin/products',async c=>c.json(await query('SELECT gtin,name,slot FROM product ORDER BY gtin')));
 app.post('/api/v1/admin/codes',async c=>{const b=await body(c,z.object({gtin:z.string().regex(/^\d{14}$/),count:z.number().int().min(1).max(20).default(1)}));if(!(await query('SELECT gtin FROM product WHERE gtin=$1',[b.gtin])).length)fail(404,'unknown gtin');const issued=await transaction(async db=>{const out=[];for(let i=0;i<b.count;i++){const serial=randomBytes(16).toString('hex');const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';const bytes=randomBytes(10);let bits=0,v=0,code='';for(const n of bytes){v=(v<<8)|n;bits+=8;while(bits>=5){bits-=5;code+=alphabet[(v>>>bits)&31];}}await query('INSERT INTO garment_code(serial,gtin,activation_hash) VALUES($1,$2,$3)',[serial,b.gtin,hash(code)],db);out.push({gtin:b.gtin,serial,activation_code:code.match(/.{4}/g).join('-')});}return out;});return c.json(issued,201);});
-app.post('/api/v1/garments/activate',async c=>{const b=await body(c,z.object({code:z.string().min(1).max(64)}));const result=await transaction(async db=>{
+async function redeem(c,qr=false){const b=await body(c,qr?z.object({gtin:z.string().regex(/^\d{14}$/),serial:z.string().regex(/^[0-9a-f]{32}$/)}):z.object({code:z.string().min(1).max(64)}));const result=await transaction(async db=>{
   await query('SELECT pg_advisory_xact_lock(hashtext($1))',[user],db);
   const attempts=await query("SELECT count(*)::int AS n FROM activation_attempt WHERE user_id=$1 AND at>=now()-interval '1 hour'",[user],db);if(attempts[0].n>=10)return {error:429};
-  const rows=await query('UPDATE garment_code SET owner_id=$1,used_at=now() WHERE activation_hash=$2 AND used_at IS NULL RETURNING *',[user,hash(b.code)],db);await query('INSERT INTO activation_attempt(user_id,at,ok) VALUES($1,now(),$2)',[user,!!rows.length],db);if(!rows.length)return {error:400};
+  const rows=await query(qr?'UPDATE garment_code SET owner_id=$1,used_at=now() WHERE serial=$2 AND gtin=$3 AND used_at IS NULL RETURNING *':'UPDATE garment_code SET owner_id=$1,used_at=now() WHERE activation_hash=$2 AND used_at IS NULL RETURNING *',qr?[user,b.serial,b.gtin]:[user,hash(b.code)],db);await query('INSERT INTO activation_attempt(user_id,at,ok) VALUES($1,now(),$2)',[user,!!rows.length],db);if(!rows.length)return {error:400};
   const tag=rows[0],p=(await query('SELECT * FROM product WHERE gtin=$1',[tag.gtin],db))[0];const gs=await query('INSERT INTO garment(id,owner_id,gtin,serial,name,slot,attrs,times_recommended,times_chosen,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,0,0,now()) RETURNING *',[randomUUID(),user,p.gtin,tag.serial,p.name,p.slot,JSON.stringify(productAttrs(p))],db);return {g:garment(gs[0])};
-});if(result.error)fail(result.error,result.error===429?'too many attempts, try again later':'invalid code');return c.json(result.g,201);});
+});if(result.error)fail(result.error,result.error===429?'too many attempts, try again later':'invalid code');return c.json(result.g,201);}
+app.post('/api/v1/garments/activate',c=>redeem(c));
+app.post('/api/v1/garments/scan',c=>redeem(c,true));
 const escape=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-async function scan(c){const rows=await query('SELECT p.*,g.serial FROM product p JOIN garment_code g ON p.gtin=g.gtin WHERE g.serial=$1 AND p.gtin=$2',[c.req.param('serial'),c.req.param('gtin')]);if(!rows.length)fail(404,'unknown product tag');const p=rows[0];return {gtin:p.gtin,serial:p.serial,name:p.name,category:p.category,slot:p.slot,color_hex:p.color_hex,style:p.style,image_url:p.image_url,digital_link:`${new URL(c.req.url).origin}/01/${p.gtin}/21/${p.serial}`,wishlist_only:true,ownership:'Scanning shows the product only. Enter the private activation code from the tag to register it.'};}
+async function scan(c){const rows=await query('SELECT p.*,g.serial FROM product p JOIN garment_code g ON p.gtin=g.gtin WHERE g.serial=$1 AND p.gtin=$2',[c.req.param('serial'),c.req.param('gtin')]);if(!rows.length)fail(404,'unknown product tag');const p=rows[0];return {gtin:p.gtin,serial:p.serial,name:p.name,category:p.category,slot:p.slot,color_hex:p.color_hex,style:p.style,image_url:p.image_url,digital_link:`${new URL(c.req.url).origin}/01/${p.gtin}/21/${p.serial}`,wishlist_only:false,ownership:'Scan this QR or enter its activation key to register the garment once.'};}
 app.get('/api/v1/scan/01/:gtin/21/:serial',async c=>c.json(await scan(c)));
-app.get('/01/:gtin/21/:serial',async c=>{const p=await scan(c);return c.html(`<!doctype html><meta name="viewport" content="width=device-width"><title>Product</title><h1>${escape(p.name)}</h1><p>Category: ${escape(p.category)} · slot: ${escape(p.slot)}</p><p><b>Wishlist only.</b> ${escape(p.ownership)}</p>`);});
+app.get('/01/:gtin/21/:serial',async c=>{const p=await scan(c);return c.html(`<!doctype html><meta name="viewport" content="width=device-width"><title>Register garment</title><h1>${escape(p.name)}</h1><p id="result">Registering garment…</p><a href="${origin}/LIVE-DEMO/app/#/wardrobe">Open my wardrobe</a><script>fetch('/api/v1/garments/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(${JSON.stringify({gtin:p.gtin,serial:p.serial})})}).then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.detail);document.getElementById('result').textContent=d.name+' added to your wardrobe.';}).catch(e=>document.getElementById('result').textContent='Unable to register: '+e.message);</script>`);});
 app.get('/api/v1/codes/:serial/qr.svg',async c=>{const row=(await query('SELECT gtin FROM garment_code WHERE serial=$1',[c.req.param('serial')]))[0];if(!row)fail(404,'unknown serial');const svg=await QRCode.toString(`${new URL(c.req.url).origin}/01/${row.gtin}/21/${c.req.param('serial')}`,{type:'svg'});return c.body(svg,200,{'Content-Type':'image/svg+xml'});});
 
 const toTime=v=>new Date(v.includes('T')?v:v.replace(' ','T'));
 const whenDate=v=>v?new Date(/[zZ]$|[+-]\d\d:\d\d$/.test(v)?v:v+'+07:00'):new Date();
 async function forecast(adm4){
-  const key='weather:'+adm4,now=Date.now();const cached=await state(key), fault=(await state('fault'))||'none';
+  const key='weather:'+adm4,now=Date.now();const cached=await state(key), fault=await activeFault();
   if(cached&&cached.expires>now)return {...cached,source:'CACHED',note:'cache hit'};
   const started=performance.now();
   try {
@@ -123,7 +127,7 @@ app.post('/api/v1/outfits/recommend',async c=>{
   c.set('weather_source',weather.source);if(weather.source==='MANUAL_REQUIRED')return c.json({weather,outfits:[],message:'Weather unavailable. Answer two taps (Rainy/Dry, Hot/Normal) and resend with manual_weather.'});
   weather.local_time=new Date(weather.at).toLocaleString('en-GB',{timeZone:'Asia/Jakarta'})+' WIB';const context={rain:weather.rain,hot:weather.hot,occasion:b.occasion};const recs=recommend(await wardrobe(),context,new Date(+when+7*3600000).toISOString().slice(0,10));const shown=[...new Set(recs.flatMap(r=>r.items.map(g=>g.id)))];if(shown.length)await query('UPDATE garment SET times_recommended=times_recommended+1 WHERE id=ANY($1::uuid[])',[shown]);return c.json({weather,context,outfits:recs,message:recs.length?null:context.rain?'No rain-ready outfit for this occasion; add rain footwear or a rain outer.':"No outfit satisfies this occasion's rules; add suitable garments."});
 });
-app.post('/api/v1/admin/fault',async c=>{const b=await body(c,z.object({mode:z.enum(faults)}));await put('fault',b.mode);await query("UPDATE neon_demo_state SET value=jsonb_set(value,'{expires}','0'::jsonb) WHERE key LIKE 'weather:%'");return c.json({fault:b.mode});});
+app.post('/api/v1/admin/fault',async c=>{const b=await body(c,z.object({mode:z.enum(faults)}));await put('fault',{mode:b.mode,expires:Date.now()+600000});await query("UPDATE neon_demo_state SET value=jsonb_set(value,'{expires}','0'::jsonb) WHERE key LIKE 'weather:%'");return c.json({fault:b.mode,expires_in_seconds:b.mode==='none'?0:600});});
 app.post('/api/v1/admin/weather/clear-cache',async c=>{await query("DELETE FROM neon_demo_state WHERE key LIKE 'weather:%'");return c.json({cleared:true});});
 app.post('/api/v1/admin/reset',async c=>{await transaction(async db=>{for(const table of ['wear_log','outfit_item','outfit','activation_attempt','interface_log','garment','garment_code'])await query('DELETE FROM '+table,[],db);for(const g of seed.garments)await query('INSERT INTO garment(id,owner_id,name,slot,attrs,times_recommended,times_chosen,last_worn_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())',[g.id,user,g.name,g.slot,JSON.stringify(g.attrs),g.times_recommended||0,g.times_chosen||0,g.last_worn_at||null],db);await query('DELETE FROM neon_demo_state',[],db);});return c.json({reset:true});});
 app.get('/api/v1/metrics/interface-log',async c=>{const limit=z.coerce.number().int().min(1).max(500).safeParse(c.req.query('limit')||50);const iface=c.req.query('interface');if(!limit.success||iface&&!/^I[1-6]$/.test(iface))fail(422,'invalid log filter');const rows=await query('SELECT * FROM interface_log WHERE ($1::text IS NULL OR interface=$1) ORDER BY id DESC LIMIT $2',[iface||null,limit.data]);return c.json(rows);});

@@ -149,22 +149,37 @@ def test_rate_limit_survives_restart_because_it_lives_in_the_db(settings):
 
 
 # 6
-def test_scan_url_shows_product_but_does_not_grant_ownership(client, app):
+def test_tag_metadata_is_read_only_and_scan_page_contains_redemption(client, app):
     tag = issue(client)[0]
     before = client.get("/api/v1/wardrobe").json()
     r = client.get(f"/api/v1/scan/01/{GTIN}/21/{tag['serial']}")
     assert r.status_code == 200
     page = r.json()
-    assert page["name"] == PRODUCTS[0]["name"] and page["wishlist_only"] is True
+    assert page["name"] == PRODUCTS[0]["name"] and page["wishlist_only"] is False
     assert page["digital_link"].endswith(f"/01/{GTIN}/21/{tag['serial']}")
     html = client.get(f"/01/{GTIN}/21/{tag['serial']}")
     assert html.status_code == 200 and PRODUCTS[0]["name"] in html.text
+    assert "/api/v1/garments/scan" in html.text
     assert client.get("/api/v1/wardrobe").json() == before
     with Session(app.state.engine) as s:
         c = s.get(GarmentCode, tag["serial"])
         assert c.owner_id is None and c.used_at is None
     assert client.get(f"/api/v1/scan/01/{PRODUCTS[1]['gtin']}/21/{tag['serial']}").status_code == 404
     assert client.get(f"/api/v1/scan/01/{GTIN}/21/{'0' * 32}").status_code == 404
+
+
+@pytest.mark.parametrize("first", ["qr", "key"])
+def test_qr_and_key_redeem_the_same_registration_once(client, first):
+    tag = issue(client)[0]
+    qr = lambda: client.post("/api/v1/garments/scan", json={"gtin": tag["gtin"], "serial": tag["serial"]})
+    key = lambda: client.post("/api/v1/garments/activate", json={"code": tag["activation_code"]})
+    methods = [qr, key] if first == "qr" else [key, qr]
+    result = methods[0]()
+    assert result.status_code == 201
+    assert result.json()["serial"] == tag["serial"]
+    assert methods[1]().status_code == 400
+    assert methods[0]().status_code == 400
+    assert sum(g["serial"] == tag["serial"] for g in client.get("/api/v1/wardrobe").json()) == 1
 
 
 def test_scans_are_logged_as_I5(client, app):

@@ -19,6 +19,7 @@ export const api:{
   add(values:{name:string;slot:Slot;attrs?:Partial<Attributes>}):Promise<Garment>;
   deleteGarment(id:string):Promise<void>;
   activate(code:string):Promise<Garment>;
+  registerScan(gtin:string,serial:string):Promise<Garment>;
   scan(gtin:string,serial:string):Promise<Scan>;
   qr(serial:string):Promise<Blob>;
   log(filter?:string):Promise<InterfaceRow[]>;

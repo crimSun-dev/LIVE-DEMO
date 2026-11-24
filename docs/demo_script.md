@@ -13,8 +13,8 @@ If the venue wifi is dead, use `.\run_demo.ps1 -Offline -Reset` (SQLite + frozen
    Repeat with `http500`, `malformed`, `missing_fields` if there is time.
 3. **Cold failure → manual.** Keep a fault on, click "Clear weather cache", Recommend: the badge shows **MANUAL_REQUIRED** and the two-tap
    Rainy/Dry, Hot/Normal prompt appears. Answer it → outfits come back (source **MANUAL**). Set fault back to `none`.
-4. **Garment registration (RQ3).** Issue a tag code. Open the public QR link: it shows the product, wishlist only, no ownership.
-   Activate the code: the garment is added in its slot. Activate the same code again: "invalid code" (usable once).
-   Typing the public serial gives exactly the same error.
+4. **Garment registration (RQ3).** Issue a tag. Scan its QR (or open the tag link): the garment is added to the wardrobe.
+   Entering the matching activation key afterwards returns "invalid code", because the tag was already used.
+   Issue a second tag and enter its key instead: it adds the garment with the same result. Its QR can no longer add it again.
 
 **Close:** show `docs/RESULTS.md` (written by `measure.py`) for M1–M5.

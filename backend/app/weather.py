@@ -221,7 +221,14 @@ class FaultState:
     def set(self, mode: str) -> None:
         if mode not in FAULT_MODES:
             raise ValueError(f"unknown fault mode {mode!r}")
-        self.mode = mode
+        self._mode = mode
+        self._expires_at = time.monotonic() + 600 if mode != "none" else None
+
+    @property
+    def mode(self) -> str:
+        if self._expires_at is not None and time.monotonic() >= self._expires_at:
+            return "none"
+        return self._mode
 
 
 def fault_transport(mode: str, healthy_payload: Callable[[], dict]) -> httpx.MockTransport:

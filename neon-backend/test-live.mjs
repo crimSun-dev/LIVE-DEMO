@@ -27,10 +27,21 @@ const g=await call('POST','/api/v1/garments',{name:'smoke garment',slot:'accesso
 await call('DELETE','/api/v1/garments/'+g.id,undefined,204);
 const [product]=await call('GET','/api/v1/admin/products');
 const [tag]=await call('POST','/api/v1/admin/codes',{gtin:product.gtin},201);
-const scan=await call('GET',`/api/v1/scan/01/${tag.gtin}/21/${tag.serial}`);assert.equal(scan.wishlist_only,true);
+const scan=await call('GET',`/api/v1/scan/01/${tag.gtin}/21/${tag.serial}`);assert.equal(scan.wishlist_only,false);
 assert.match(await call('GET',`/api/v1/codes/${tag.serial}/qr.svg`),/<svg/);
 assert.equal((await call('POST','/api/v1/garments/activate',{code:tag.activation_code},201)).serial,tag.serial);
 await call('POST','/api/v1/garments/activate',{code:tag.activation_code},400);
+const [qrTag]=await call('POST','/api/v1/admin/codes',{gtin:product.gtin},201);
+assert.equal((await call('POST','/api/v1/garments/scan',{gtin:qrTag.gtin,serial:qrTag.serial},201,false)).serial,qrTag.serial);
+await call('POST','/api/v1/garments/activate',{code:qrTag.activation_code},400);
+await call('POST','/api/v1/garments/scan',{gtin:tag.gtin,serial:tag.serial},400,false);
+const [raceTag]=await call('POST','/api/v1/admin/codes',{gtin:product.gtin},201);
+const race=await Promise.all([
+  fetch(base+'/api/v1/garments/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gtin:raceTag.gtin,serial:raceTag.serial})}),
+  fetch(base+'/api/v1/garments/activate',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':key},body:JSON.stringify({code:raceTag.activation_code})}),
+]);
+assert.deepEqual(race.map(r=>r.status).sort(),[201,400]);
+assert.equal((await call('GET','/api/v1/wardrobe')).filter(g=>g.serial===raceTag.serial).length,1);
 await call('POST','/api/v1/admin/fault',{mode:'http500'});
 assert.equal((await call('POST','/api/v1/outfits/recommend',{occasion:'campus'})).weather.source,'CACHED');
 await call('POST','/api/v1/admin/weather/clear-cache',{});

@@ -68,7 +68,7 @@ class InterfaceLogMiddleware:
             headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
             if headers.get("x-interface", "").upper() == "I6":
                 iface = "I6"
-            elif "/scan/" in path or GS1_PATH.match(path):
+            elif "/scan/" in path or path == "/api/v1/garments/scan" or GS1_PATH.match(path):
                 iface = "I5"
             else:
                 iface = "I1"
