@@ -1,6 +1,8 @@
 # Digital Wardrobe — Live Demo (INFS4305 System Integration)
 
 Deployment: [GitHub Pages + FastAPI + Neon](docs/DEPLOYMENT.md).
+The public demo uses **GitHub Pages + Neon Functions + Neon Postgres**. The Neon
+API adapter is in `neon-backend/`; the Python backend below remains available locally.
 
 A working virtual wardrobe backend that integrates the **BMKG open weather API**, built from
 [`docs/TDD_Digital_Wardrobe_Live_Demo.md`](docs/TDD_Digital_Wardrobe_Live_Demo.md):

@@ -22,3 +22,4 @@ Thumbs.db
 .claude/
 .deployment/
 _site/
+node_modules/

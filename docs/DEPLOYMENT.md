@@ -1,38 +1,55 @@
-# GitHub Pages + FastAPI + Neon
+# GitHub Pages + Neon Functions + Neon Postgres
 
-The public page is hosted at https://crimsun-dev.github.io/LIVE-DEMO/.
-GitHub Pages serves HTML and JavaScript. FastAPI runs separately and connects to
-the existing Neon database using a server-only DATABASE_URL. No database password
-or API key belongs in Pages, repository variables, or the public repository.
+Frontend: https://crimsun-dev.github.io/LIVE-DEMO/
 
-## Backend
+The public API runs directly on Neon Functions, on the existing `demo` branch of
+`digital-wardrobe-live-demo`. Neon injects the private DATABASE_URL at runtime.
+No separate hosting provider is required. The Function origin is:
 
-For Render, import this repository as a Blueprint using render.yaml. Set its
-DATABASE_URL to the existing Neon **demo** branch URL from backend/.env. Do not
-use the test branch. Render generates a DEMO_API_KEY; retrieve it from the service
-environment and enter it in the page's API key field when demonstrating writes.
-The CORS origin is https://crimsun-dev.github.io (no repository path).
+https://br-red-star-bion9m3g-wardrobeapi.compute.c-5.ap-southeast-1.aws.neon.tech
 
-For another Python host: install backend/requirements.txt, work from backend/,
-and start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-Set DATABASE_URL, DEMO_API_KEY, CORS_ORIGINS, WEATHER_MODE=live and AUTO_SEED=1.
-The application creates missing tables and seeds an empty wardrobe on startup.
-Existing garments are retained. Do not run measure.py against the demo database:
-its database measurement mode resets data.
+## Source and compatibility
 
-## Connect Pages
+`neon-backend/index.mjs` implements the existing `/api/v1` routes, GS1 scan pages,
+QR SVGs, and Swagger documentation. Neon Functions use Node.js, so this adapter
+runs the public API in JavaScript. `backend/` remains the Python implementation
+for local demos, SQLite fallback, course tests, and measurement.
 
-1. Verify the backend's /api/v1/health and /api/v1/wardrobe endpoints return 200.
-   Health must report `db: neon`.
-2. Set GitHub repository Actions variable API_BASE_URL to the HTTPS backend origin.
-3. Run the Deploy GitHub Pages workflow. Only index.html, config.js and .nojekyll
-   are uploaded; the backend and .env are excluded.
-4. Open Pages, verify wardrobe loading, enter the generated demo API key, then
-   test recommendation, save, garment activation and the weather fallback.
+The adapter reuses existing tables and data. An additive `neon_demo_state` table
+persists weather caches and demo fault settings across Function restarts.
+Scoring is checked against 20 reference cases from the Python implementation:
+every occasion/rain/heat combination.
 
-You can also enter a backend URL directly in the page's API base field, or pass
-`?api=https://your-api-host` while testing. The query parameter takes precedence.
-Without a configured backend the page displays a setup message.
+## Deploy
 
-This remains the existing synthetic single-user demo. Anyone given its write key
-can use the demo controls, including reset. It is not a multi-user wardrobe service.
+Install with `npm ci --prefix neon-backend`, then:
+
+```powershell
+neon functions deploy wardrobeapi --project-id mute-snow-39846153 --branch demo --src neon-backend/index.mjs --env WEATHER_MODE=live
+neon functions get wardrobeapi --project-id mute-snow-39846153 --branch demo
+```
+
+The first deployment sets DEMO_API_KEY privately; subsequent deployments preserve
+it. Enter the existing demo key in the page for writes. Never place DATABASE_URL
+or Neon management credentials in the browser, source control, or Pages variables.
+
+GitHub Actions variable API_BASE_URL contains the public Function origin. Run
+Deploy GitHub Pages after changing that variable. The Pages artifact includes
+only the static frontend and public API URL. CORS allows the Pages origin.
+
+## Verification
+
+`/api/v1/health` reports `db: neon` and `runtime: neon-functions`.
+`/api/v1/wardrobe` returns the persisted wardrobe.
+
+```powershell
+npm test --prefix neon-backend
+```
+
+`neon-backend/test-live.mjs` tests CORS, authorization, recommendations, outfits,
+wear, wardrobe writes, registration, QR, weather fallback, and metrics. It resets
+data and refuses to run unless TEST_API_URL is the dedicated
+`br-noisy-frog-bivp6wyg` test branch. Never run it against the demo database.
+
+This remains the synthetic single-user demo. Its write key also grants access
+to demo controls, including reset; it is not a multi-user wardrobe service.
