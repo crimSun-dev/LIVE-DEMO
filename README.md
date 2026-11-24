@@ -1,6 +1,6 @@
 # Digital Wardrobe — Live Demo (INFS4305 System Integration)
 
-Deployment: [GitHub Pages + FastAPI + Neon](docs/DEPLOYMENT.md).
+Deployment: [GitHub Pages + Neon Functions + Neon Postgres](docs/DEPLOYMENT.md).
 The public demo uses **GitHub Pages + Neon Functions + Neon Postgres**. The Neon
 API adapter is in `neon-backend/`; the Python backend below remains available locally.
 
@@ -10,8 +10,12 @@ FastAPI + SQLAlchemy over **Neon Postgres** (SQLite as offline fallback), a vali
 weather gateway with a LIVE → CACHED → MANUAL fault ladder, QR + one-time activation-code garment
 registration, and `measure.py`, which produces the Ch 15 metrics M1–M5.
 
-The frontend is a single plain web page (TDD Phase 6, no visual design yet). The Three.js avatar
-(Phase 7) is not built yet; `GET /api/v1/avatar/{outfit_id}` already returns what it will consume.
+The frontend in `Frontend/frontend/` includes an editorial landing page, wardrobe,
+week planner, registration, demo controls, and a procedural Three.js avatar.
+The public app is at https://crimsun-dev.github.io/LIVE-DEMO/app/.
+Run `npm ci --prefix Frontend/frontend` and `npm run dev --prefix Frontend/frontend`
+for frontend development with the local FastAPI proxy. Build with
+`npm run build --prefix Frontend/frontend` to serve it from FastAPI after restart.
 
 ## Quick start (Windows)
 

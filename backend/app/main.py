@@ -13,6 +13,7 @@ import anyio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -143,13 +144,18 @@ def create_app(settings: Settings | None = None, bmkg_base: BMKGClient | None = 
     app.include_router(admin.router, prefix="/api/v1")
     app.include_router(registration.gs1_router)
 
-    @app.get("/", include_in_schema=False)
-    def index():
-        return FileResponse(STATIC_DIR / "index.html")
-
     @app.get("/config.js", include_in_schema=False)
     def frontend_config():
         return FileResponse(STATIC_DIR / "config.js", media_type="application/javascript")
+
+    frontend_dist = STATIC_DIR.parents[2] / "Frontend" / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount("/LIVE-DEMO", StaticFiles(directory=frontend_dist, html=True), name="pages-frontend")
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+    else:
+        @app.get("/", include_in_schema=False)
+        def index():
+            return FileResponse(STATIC_DIR / "index.html")
 
     app.add_middleware(InterfaceLogMiddleware, writer=write_log)
     if settings.cors_origins:

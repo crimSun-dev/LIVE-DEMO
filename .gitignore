@@ -23,3 +23,7 @@ Thumbs.db
 .deployment/
 _site/
 node_modules/
+dist/
+playwright-report/
+test-results/
+Digital_Wardrobe_Frontend.zip

@@ -15,6 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: Frontend/frontend/package-lock.json
+      - run: npm ci --prefix Frontend/frontend
+      - run: npm test --prefix Frontend/frontend
+      - run: npm run typecheck --prefix Frontend/frontend
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -22,6 +30,7 @@ jobs:
       - name: Build public frontend
         env:
           API_BASE_URL: ${{ vars.API_BASE_URL }}
+          SITE_BASE_PATH: /LIVE-DEMO/
         run: python scripts/build_pages.py
       - uses: actions/upload-pages-artifact@v4
         with:
